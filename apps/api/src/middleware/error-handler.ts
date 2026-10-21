@@ -32,6 +32,20 @@ export const errorHandler: ErrorRequestHandler = (
     });
     return;
   }
+  if (
+    error !== null &&
+    typeof error === "object" &&
+    "type" in error &&
+    error.type === "entity.too.large"
+  ) {
+    response.status(413).json({
+      error: {
+        code: "PAYLOAD_TOO_LARGE",
+        message: "The request body exceeds the allowed size.",
+      },
+    });
+    return;
+  }
 
   console.error("Unhandled API error:", error);
 
