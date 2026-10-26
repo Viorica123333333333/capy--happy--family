@@ -8,9 +8,55 @@ datasource db {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                      Int                      @id @default(autoincrement())
+  email                   String                   @unique
+  passwordHash            String                   @db.VarChar(255)
+  name                    String?
+  emailVerifiedAt         DateTime?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+
+  sessions                Session[]
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
+}
+
+model Session {
+  id        Int       @id @default(autoincrement())
+  tokenHash String    @unique @db.Char(64)
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  lastSeenAt DateTime?
+  revokedAt DateTime?
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
+}
+
+model EmailVerificationToken {
+  id        Int       @id @default(autoincrement())
+  tokenHash String    @unique @db.Char(64)
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id        Int       @id @default(autoincrement())
+  tokenHash String    @unique @db.Char(64)
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
 }
