@@ -7,6 +7,8 @@ import helmet from "helmet";
 import { apiRateLimiter } from "./middleware/rate-limiter.js";
 import cors from "cors";
 import { env } from "./config/env.js";
+import { registerSchema } from "./schemas/register.schema.js";
+import { registerUser } from "./services/auth.service.js";
 
 const app = express();
 
@@ -27,6 +29,24 @@ app.use(
 );
 app.use(express.json({ limit: "100kb" }));
 app.use("/api", apiRateLimiter);
+
+
+app.post(
+  "/api/auth/register",
+  validateBody(registerSchema),
+  async (request, response, next) => {
+    try {
+      const user = await registerUser(request.body);
+
+      response.status(201).json({
+        status: "ok",
+        data: { user },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 app.get("/api/health", (_request, response) => {
   response.json({

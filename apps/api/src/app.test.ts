@@ -1,9 +1,131 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import express from "express";
 
+const { mockRegisterUser } = vi.hoisted(() => ({
+  mockRegisterUser: vi.fn(),
+}));
+
+vi.mock("./services/auth.service.js", () => ({
+  registerUser: mockRegisterUser,
+}));
+
 import app from "./app.js";
+import { AppError } from "./lib/app-error.js";
 import { createRateLimiter } from "./middleware/rate-limiter.js";
+
+describe("POST /api/auth/register", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("creates a user and returns only public fields", async () => {
+    mockRegisterUser.mockResolvedValue({
+      id: 1,
+      email: "capy@example.com",
+      name: "Capy Family",
+      emailVerifiedAt: null,
+      createdAt: new Date("2026-10-28T12:00:00.000Z"),
+    });
+
+    const response = await request(app)
+      .post("/api/auth/register")
+      .send({
+        email: "capy@example.com",
+        password: "A-long-and-unique-passphrase-2026!",
+        name: "Capy Family",
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body).toMatchObject({
+      status: "ok",
+      data: {
+        user: {
+          id: 1,
+          email: "capy@example.com",
+          name: "Capy Family",
+          emailVerifiedAt: null,
+        },
+      },
+    });
+    expect(response.body.data.user).not.toHaveProperty("passwordHash");
+    expect(response.body.data.user).not.toHaveProperty("password");
+    expect(mockRegisterUser).toHaveBeenCalledWith({
+      email: "capy@example.com",
+      password: "A-long-and-unique-passphrase-2026!",
+      name: "Capy Family",
+    });
+  });
+
+  it("rejects invalid registration input", async () => {
+    const response = await request(app)
+      .post("/api/auth/register")
+      .send({
+        email: "not-an-email",
+        password: "short",
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    expect(mockRegisterUser).not.toHaveBeenCalled();
+  });
+
+  it("rejects unexpected fields", async () => {
+    const response = await request(app)
+      .post("/api/auth/register")
+      .send({
+        email: "capy@example.com",
+        password: "A-long-and-unique-passphrase-2026!",
+        isAdmin: true,
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    expect(mockRegisterUser).not.toHaveBeenCalled();
+  });
+
+  it("returns a controlled error for duplicate email addresses", async () => {
+    mockRegisterUser.mockRejectedValue(
+      new AppError(
+        "An account with this email address already exists.",
+        409,
+        "EMAIL_ALREADY_REGISTERED",
+      ),
+    );
+
+    const response = await request(app)
+      .post("/api/auth/register")
+      .send({
+        email: "capy@example.com",
+        password: "A-long-and-unique-passphrase-2026!",
+      });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe("EMAIL_ALREADY_REGISTERED");
+  });
+
+  it("returns a generic error for unexpected failures", async () => {
+    mockRegisterUser.mockRejectedValue(
+      new Error("Sensitive internal database details"),
+    );
+
+    const response = await request(app)
+      .post("/api/auth/register")
+      .send({
+        email: "capy@example.com",
+        password: "A-long-and-unique-passphrase-2026!",
+      });
+
+    expect(response.status).toBe(500);
+    expect(response.body.error).toEqual({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "An unexpected error occurred.",
+    });
+    expect(JSON.stringify(response.body)).not.toContain(
+      "Sensitive internal database details",
+    );
+  });
+});
 
 describe("POST /api/health/validate", () => {
   it("accepts a valid message", async () => {
@@ -14,9 +136,7 @@ describe("POST /api/health/validate", () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
       status: "ok",
-      data: {
-        message: "Hello, Capy!",
-      },
+      data: { message: "Hello, Capy!" },
     });
   });
 
@@ -82,7 +202,6 @@ describe("API rate limiting", () => {
     const rateLimitedApp = express();
 
     rateLimitedApp.use("/api", createRateLimiter({ limit: 2 }));
-
     rateLimitedApp.get("/api/health", (_request, response) => {
       response.json({ status: "ok" });
     });
@@ -94,7 +213,6 @@ describe("API rate limiting", () => {
     expect(firstResponse.status).toBe(200);
     expect(secondResponse.status).toBe(200);
     expect(thirdResponse.status).toBe(429);
-
     expect(thirdResponse.body.error).toEqual({
       code: "RATE_LIMIT_EXCEEDED",
       message: "Too many requests. Please try again later.",
